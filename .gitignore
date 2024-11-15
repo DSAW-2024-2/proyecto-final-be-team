@@ -24,3 +24,4 @@ build/
 # Configuraciones de editor
 .vscode/
 .idea/
+.vercel
