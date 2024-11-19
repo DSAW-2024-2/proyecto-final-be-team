@@ -1,23 +1,28 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/auth.middleware");
+const { validateTrip, validateTripSearch } = require("../middleware/tripValidation.middleware");
 
 // Crear un viaje (asociado con el conductor)
-router.post("/", authMiddleware, async (req, res) => {
+router.post("/", [authMiddleware, validateTrip], async (req, res) => {
   try {
     const userId = req.user.id;
     const userRef = req.app.locals.collections.users.doc(userId);
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-      return res.status(404).json({ message: "Usuario no encontrado" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Usuario no encontrado" 
+      });
     }
 
     const userData = userDoc.data();
 
     if (!userData.vehicle) {
       return res.status(400).json({
-        message: "El usuario no tiene un vehículo registrado. Registra un vehículo primero.",
+        success: false,
+        message: "El usuario no tiene un vehículo registrado"
       });
     }
 
@@ -29,22 +34,13 @@ router.post("/", authMiddleware, async (req, res) => {
       departureTime,
       cost,
       paymentMethods,
+      routeTag,  // Aseguramos que routeTag está incluido
       affinity,
-      description,
+      description
     } = req.body;
 
-    // Validación mejorada de campos
-    if (!tripDate || !origin || !destination || !arrivalTime || !departureTime || !cost || !paymentMethods) {
-      return res.status(400).json({ 
-        message: "Faltan campos obligatorios del viaje",
-        required: ['tripDate', 'origin', 'destination', 'arrivalTime', 'departureTime', 'cost', 'paymentMethods']
-      });
-    }
-
-    // Validación adicional de datos
-    if (isNaN(cost) || cost <= 0) {
-      return res.status(400).json({ message: "El costo debe ser un número válido mayor a 0" });
-    }
+    // Log para debugging
+    console.log('Creating trip with routeTag:', routeTag);
 
     const newTrip = {
       driverId: userId,
@@ -63,6 +59,7 @@ router.post("/", authMiddleware, async (req, res) => {
       departureTime,
       cost: Number(cost),
       paymentMethods,
+      routeTag,  // Incluimos routeTag en el objeto newTrip
       affinity: affinity || "No especificada",
       description: description || "",
       createdAt: new Date(),
@@ -71,7 +68,18 @@ router.post("/", authMiddleware, async (req, res) => {
       availableSeats: userData.vehicle.availableSeats
     };
 
+    // Log para debugging
+    console.log('New trip object:', { ...newTrip, routeTag });
+
     const tripRef = await req.app.locals.collections.trips.add(newTrip);
+    
+    // Verificamos que se guardó correctamente
+    const savedTrip = await tripRef.get();
+    const savedData = savedTrip.data();
+
+    if (!savedData.routeTag) {
+      throw new Error('Route tag was not saved correctly');
+    }
     
     res.status(201).json({ 
       success: true,
@@ -91,10 +99,18 @@ router.post("/", authMiddleware, async (req, res) => {
   }
 });
 
-// Obtener todos los viajes
-router.get("/", async (req, res) => {
+// Obtener todos los viajes con opción de filtrar por ruta
+router.get("/", validateTripSearch, async (req, res) => {
   try {
-    const tripsSnapshot = await req.app.locals.collections.trips.get();
+    const { routeTag } = req.query;
+    let tripsQuery = req.app.locals.collections.trips;
+
+    // Si se proporciona routeTag, filtrar por esa ruta
+    if (routeTag) {
+      tripsQuery = tripsQuery.where('routeTag', '==', routeTag);
+    }
+
+    const tripsSnapshot = await tripsQuery.get();
     const allTrips = tripsSnapshot.docs.map((doc) => ({ 
       id: doc.id, 
       ...doc.data(),
@@ -151,7 +167,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // Actualizar un viaje por ID
-router.put("/:id", authMiddleware, async (req, res) => {
+router.put("/:id", [authMiddleware, validateTrip], async (req, res) => {
   try {
     const tripId = req.params.id;
     const tripRef = req.app.locals.collections.trips.doc(tripId);
@@ -174,6 +190,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
 
     const updatedData = {
       ...req.body,
+      routeTag: req.body.routeTag, // Aseguramos que routeTag se actualiza
       updatedAt: new Date()
     };
 
