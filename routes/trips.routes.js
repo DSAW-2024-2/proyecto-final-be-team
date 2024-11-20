@@ -167,7 +167,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // Actualizar un viaje por ID
-router.put("/:id", [authMiddleware, validateTrip], async (req, res) => {
+router.put("/:id", [authMiddleware], async (req, res) => {
   try {
     const tripId = req.params.id;
     const tripRef = req.app.locals.collections.trips.doc(tripId);
@@ -188,9 +188,45 @@ router.put("/:id", [authMiddleware, validateTrip], async (req, res) => {
       });
     }
 
+    // Validaciones específicas para campos actualizados
+    const updates = { ...req.body };
+    
+    if (updates.cost) {
+      const cost = Number(updates.cost);
+      if (isNaN(cost) || cost <= 0 || cost < 1000 || cost > 100000) {
+        return res.status(400).json({
+          success: false,
+          message: "El costo debe ser un número válido entre 1000 y 100000"
+        });
+      }
+    }
+
+    if (updates.tripDate) {
+      const tripDate = new Date(updates.tripDate);
+      if (isNaN(tripDate.getTime()) || tripDate < new Date()) {
+        return res.status(400).json({
+          success: false,
+          message: "Fecha inválida o anterior a la actual"
+        });
+      }
+    }
+
+    if (updates.departureTime && updates.arrivalTime) {
+      const departureTime = new Date(`${tripData.tripDate} ${updates.departureTime}`);
+      const arrivalTime = new Date(`${tripData.tripDate} ${updates.arrivalTime}`);
+      
+      if (arrivalTime <= departureTime) {
+        return res.status(400).json({
+          success: false,
+          message: "La hora de llegada debe ser posterior a la hora de salida"
+        });
+      }
+    }
+
+    // Mantener los campos existentes si no se proporcionan nuevos valores
     const updatedData = {
-      ...req.body,
-      routeTag: req.body.routeTag, // Aseguramos que routeTag se actualiza
+      ...tripData,
+      ...updates,
       updatedAt: new Date()
     };
 
